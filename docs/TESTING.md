@@ -56,3 +56,18 @@ paths. This builder has not been run by the author on Windows.
 
 The previously provided trace audit found 10 entries before and after the
 run. It does not prove no existing registry **value data** was modified.
+
+### v1.2 shared Qt state verification
+
+1. Note whether `HKCU\Software\QtProject\OrganizationDefaults\FileDialog`
+   existed BEFORE launch. (If yes it should still exist with exactly its original values.)
+2. Launch CaesiumPortable and open an image using the file picker.
+3. Exit fully. The host Qt FileDialog leaf should be back to its original state;
+   portable state should be under `Data/Settings/qtfiledialog.reg`.
+4. On a clean Windows account where the key was absent, verify that the Qt leaf
+   and empty parent keys are absent AFTER exit.
+5. Re-run the read-only diagnostic. Any new or changed entries require investigation.
+6. If old empty `SaeraSoft` parents remained from v1.1, they should now be gone.
+
+Do not use a second Qt program concurrently during this test. The optional
+Qt legacy-cleaning helper requires explicit consent and keeps a registry backup.

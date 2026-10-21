@@ -43,23 +43,45 @@ class CheckBuilder(unittest.TestCase):
         s=(ROOT/'README.md').read_text(encoding='utf8')
         self.assertIn('Preserve your existing `Data/`',s)
         self.assertIn('Do not delete those backups',s)
-    def test_new_empty_parent_cleanup_only(self):
+    def test_empty_parent_cleanup_only(self):
         s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
         for part in ('HadRoamingParent','HadLocalParent','HadRegistryParent',
-                     'RemoveNewEmptyFolderParent','RemoveNewEmptyRegistryParent',
+                     'RemoveEmptyFolderParent','RemoveEmptyRegistryParent',
                      'Directory.GetFileSystemEntries(parent).Length == 0',
                      'info.Attributes & FileAttributes.ReparsePoint',
                      'k.SubKeyCount != 0 || k.ValueCount != 0',
-                     'DeleteSubKey(RegParent, false)'):
+                     'DeleteSubKey(subkey, false)'):
             self.assertIn(part,s)
         self.assertNotIn('DeleteSubKeyTree(RegParent',s)
         self.assertNotIn('DeleteSubKeyTree(@"Software\\QtProject',s)
-    def test_preexisting_parents_never_removed(self):
+    def test_empty_legacy_saerasoft_parents(self):
         s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
-        for part in ('if (!HadRoamingParent) RemoveNewEmptyFolderParent',
-                     'if (!HadLocalParent) RemoveNewEmptyFolderParent',
-                     'if (!HadRegistryParent) RemoveNewEmptyRegistryParent'):
-            self.assertIn(part,s)
+        self.assertIn('RemoveEmptyFolderParent(Path.GetDirectoryName(RoamingHost));',s)
+        self.assertIn('RemoveEmptyFolderParent(Path.GetDirectoryName(LocalHost));',s)
+        self.assertIn('RemoveEmptyRegistryParent(RegParent);',s)
+        self.assertNotIn('Directory.Delete(parent, true)',s)
+
+    def test_qt_leaf_only_and_safe_recovery(self):
+        s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
+        for x in ('QtDialogSubkey','QtOriginalReg','QtManaged','HadQtDialog',
+                  'HadQtOrgParent','HadQtRootParent','ExportReg(QtDialogSubkey, QtOriginalReg)',
+                  'qtfiledialog.reg','QtManaged = false;', 'QtManaged = true;',
+                  'if (!HadQtOrgParent) RemoveEmptyRegistryParent(QtOrgParent);',
+                  'if (!HadQtRootParent) RemoveEmptyRegistryParent(QtRootParent);'):
+            self.assertIn(x,s)
+        self.assertNotIn('DeleteSubKeyTree(QtRootParent',s)
+        self.assertNotIn('DeleteSubKeyTree(QtOrgParent',s)
+
+    def test_legacy_qt_cleanup_requires_consent_and_backup(self):
+        script=(ROOT/'maintenance/Review-Old-QtFileDialog.ps1').read_text(encoding='utf8')
+        for x in ('REMOVE SHARED QT HISTORY','LegacyHostBackups','reg.exe export',
+                  'DeleteSubKeyTree($leaf, $false)', 'GetValueNames()',
+                  "'history','lastVisited','qtVersion','viewMode'"):
+            self.assertIn(x,script)
+        self.assertNotIn('DeleteSubKeyTree(\'Software\\QtProject\'',script)
+        build=(ROOT/'scripts/build.ps1').read_text(encoding='utf8')
+        self.assertIn("Join-Path $repoRoot 'maintenance'",build)
+
     def test_v10_journal_compatibility(self):
         s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
         self.assertIn('HadRoamingParent = true;',s)

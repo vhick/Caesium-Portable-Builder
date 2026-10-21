@@ -15,11 +15,17 @@ internal static class CaesiumPortable
 {
     const string RegSubkey = @"Software\SaeraSoft\Caesium Image Compressor";
     const string RegParent = @"Software\SaeraSoft";
+    // Qt's shared file-dialog history is scoped to this leaf key only.
+    // Never delete the whole QtProject tree, which other applications may use.
+    const string QtDialogSubkey = @"Software\QtProject\OrganizationDefaults\FileDialog";
+    const string QtOrgParent = @"Software\QtProject\OrganizationDefaults";
+    const string QtRootParent = @"Software\QtProject";
     const string AppSubpath = @"SaeraSoft\Caesium Image Compressor";
     const string Marker = ".caesium-portable-owned";
     static string Root, Data, Recovery, Target, RoamingHost, LocalHost;
-    static string RoamingBackup, LocalBackup, OriginalReg, Journal;
+    static string RoamingBackup, LocalBackup, OriginalReg, QtOriginalReg, Journal;
     static bool HadRoaming, HadLocal, HadRegistry;
+    static bool QtManaged, HadQtDialog, HadQtOrgParent, HadQtRootParent;
     // Only remove empty containers newly created by THIS launch.
     static bool HadRoamingParent, HadLocalParent, HadRegistryParent;
     static string MachineIdentity;
@@ -34,6 +40,7 @@ internal static class CaesiumPortable
             Recovery = Path.Combine(Data, "Recovery");
             Journal = Path.Combine(Recovery, "active.txt");
             OriginalReg = Path.Combine(Recovery, "host-original.reg");
+            QtOriginalReg = Path.Combine(Recovery, "host-original-qtfiledialog.reg");
             string selected = Path.Combine(Root, "Other", "Launcher", "target.txt");
             if (!File.Exists(selected)) throw new InvalidOperationException("Missing Other/Launcher/target.txt. Rebuild the package.");
             string relative = File.ReadAllText(selected).Trim().Replace('/', Path.DirectorySeparatorChar);
@@ -125,7 +132,7 @@ internal static class CaesiumPortable
         Directory.CreateDirectory(Recovery);
         RoamingBackup = RoamingHost + ".CaesiumPortableHostBackup";
         LocalBackup = LocalHost + ".CaesiumPortableHostBackup";
-        if (Directory.Exists(RoamingBackup) || Directory.Exists(LocalBackup) || File.Exists(OriginalReg))
+        if (Directory.Exists(RoamingBackup) || Directory.Exists(LocalBackup) || File.Exists(OriginalReg) || File.Exists(QtOriginalReg))
             throw new InvalidOperationException("A previous host backup exists but its recovery journal is missing. No files were changed. Inspect the CaesiumPortableHostBackup folders before continuing.");
         HadRoaming = Directory.Exists(RoamingHost);
         HadLocal = Directory.Exists(LocalHost);
@@ -133,6 +140,10 @@ internal static class CaesiumPortable
         HadRoamingParent = Directory.Exists(Path.GetDirectoryName(RoamingHost));
         HadLocalParent = Directory.Exists(Path.GetDirectoryName(LocalHost));
         HadRegistryParent = HasParentKey();
+        QtManaged = true;
+        HadQtDialog = HasKey(QtDialogSubkey);
+        HadQtOrgParent = HasKey(QtOrgParent);
+        HadQtRootParent = HasKey(QtRootParent);
         WriteJournal(); // save recovery info BEFORE touching Windows
 
         PrepareFolder(RoamingHost, RoamingBackup, Path.Combine(Data, "Roaming"), HadRoaming);
@@ -141,6 +152,13 @@ internal static class CaesiumPortable
         if (HasKey()) Registry.CurrentUser.DeleteSubKeyTree(RegSubkey, false);
         string portableReg = Path.Combine(Data, "Settings", "registry.reg");
         if (File.Exists(portableReg)) ImportReg(portableReg);
+        // Treat Qt FileDialog like other portable settings: save the host leaf,
+        // temporarily load the portable leaf, then restore the host on exit.
+        // Must never touch unrelated QtProject entries.
+        if (HadQtDialog) ExportReg(QtDialogSubkey, QtOriginalReg);
+        if (HasKey(QtDialogSubkey)) Registry.CurrentUser.DeleteSubKeyTree(QtDialogSubkey, false);
+        string qtPortableReg = Path.Combine(Data, "Settings", "qtfiledialog.reg");
+        if (File.Exists(qtPortableReg)) ImportReg(qtPortableReg);
     }
 
     static void PrepareFolder(string host, string backup, string portable, bool previouslyExists)
@@ -173,13 +191,29 @@ internal static class CaesiumPortable
         }
         // Restore the pre-existing registry state exactly; never delete parent SaeraSoft.
         if (HadRegistry && File.Exists(OriginalReg)) ImportReg(OriginalReg);
+        if (QtManaged)
+        {
+            // Existing Qt settings are only removed when an original snapshot
+            // is present, or the leaf did not exist before this session.
+            if (HasKey(QtDialogSubkey) && (!HadQtDialog || File.Exists(QtOriginalReg)))
+            {
+                string qtSettings = Path.Combine(Data, "Settings");
+                Directory.CreateDirectory(qtSettings);
+                ExportReg(QtDialogSubkey, Path.Combine(qtSettings, "qtfiledialog.reg"));
+                Registry.CurrentUser.DeleteSubKeyTree(QtDialogSubkey, false);
+            }
+            if (HadQtDialog && File.Exists(QtOriginalReg)) ImportReg(QtOriginalReg);
+            if (!HadQtOrgParent) RemoveEmptyRegistryParent(QtOrgParent);
+            if (!HadQtRootParent) RemoveEmptyRegistryParent(QtRootParent);
+        }
         RecoverFolder(RoamingHost, RoamingBackup, Path.Combine(Data, "Roaming"), HadRoaming);
         RecoverFolder(LocalHost, LocalBackup, Path.Combine(Data, "Local"), HadLocal);
-        // Do not remove parents that existed BEFORE this launch, even if empty.
-        // Never delete non-empty parents: other SaeraSoft tools may share them.
-        if (!HadRoamingParent) RemoveNewEmptyFolderParent(Path.GetDirectoryName(RoamingHost));
-        if (!HadLocalParent) RemoveNewEmptyFolderParent(Path.GetDirectoryName(LocalHost));
-        if (!HadRegistryParent) RemoveNewEmptyRegistryParent();
+        // v1.0/v1.1 could leave EMPTY SaeraSoft parents. These are now pruned
+        // even if present at launch, but NEVER recursively and NEVER if nonempty.
+        RemoveEmptyFolderParent(Path.GetDirectoryName(RoamingHost));
+        RemoveEmptyFolderParent(Path.GetDirectoryName(LocalHost));
+        RemoveEmptyRegistryParent(RegParent);
+        if (File.Exists(QtOriginalReg)) File.Delete(QtOriginalReg);
         if (File.Exists(OriginalReg)) File.Delete(OriginalReg);
         File.Delete(Journal);
         // Recovery directory is left empty for easy inspection.
@@ -226,7 +260,7 @@ internal static class CaesiumPortable
             CopyDirectory(directory, Path.Combine(dst, Path.GetFileName(directory)), includeMarker);
     }
 
-    static void RemoveNewEmptyFolderParent(string parent)
+    static void RemoveEmptyFolderParent(string parent)
     {
         try
         {
@@ -244,19 +278,24 @@ internal static class CaesiumPortable
 
     static bool HasParentKey()
     {
-        using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegParent)) return k != null;
+        return HasKey(RegParent);
     }
 
-    static void RemoveNewEmptyRegistryParent()
+    static bool HasKey(string subkey)
+    {
+        using (RegistryKey k = Registry.CurrentUser.OpenSubKey(subkey)) return k != null;
+    }
+
+    static void RemoveEmptyRegistryParent(string subkey)
     {
         try
         {
-            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegParent, false))
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(subkey, false))
             {
                 if (k == null || k.SubKeyCount != 0 || k.ValueCount != 0) return;
             }
             // DeleteSubKey refuses non-empty subkey trees (unlike DeleteSubKeyTree).
-            Registry.CurrentUser.DeleteSubKey(RegParent, false);
+            Registry.CurrentUser.DeleteSubKey(subkey, false);
         }
         catch (IOException) { /* Keep existing or concurrently created contents. */ }
         catch (UnauthorizedAccessException) { }
@@ -266,12 +305,13 @@ internal static class CaesiumPortable
 
     static bool HasKey()
     {
-        using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegSubkey)) return k != null;
+        return HasKey(RegSubkey);
     }
-    static void ExportReg(string to)
+    static void ExportReg(string to) { ExportReg(RegSubkey, to); }
+    static void ExportReg(string subkey, string to)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(to));
-        RunReg("export \"HKCU\\" + RegSubkey + "\" \"" + to + "\" /y");
+        RunReg("export \"HKCU\\" + subkey + "\" \"" + to + "\" /y");
     }
     static void ImportReg(string from) { RunReg("import \"" + from + "\""); }
     static void RunReg(string args)
@@ -296,6 +336,10 @@ internal static class CaesiumPortable
             "HadRoamingParent=" + HadRoamingParent,
             "HadLocalParent=" + HadLocalParent,
             "HadRegistryParent=" + HadRegistryParent,
+            "QtManaged=" + QtManaged,
+            "HadQtDialog=" + HadQtDialog,
+            "HadQtOrgParent=" + HadQtOrgParent,
+            "HadQtRootParent=" + HadQtRootParent,
             "RoamingBackup=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(RoamingBackup)),
             "LocalBackup=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(LocalBackup))
         };
@@ -317,6 +361,11 @@ internal static class CaesiumPortable
         HadRoamingParent = true;
         HadLocalParent = true;
         HadRegistryParent = true;
+        // Old journals predate Qt redirection; do not touch Qt in their recovery.
+        QtManaged = false;
+        HadQtDialog = true;
+        HadQtOrgParent = true;
+        HadQtRootParent = true;
         string owner = null;
         foreach (string line in File.ReadAllLines(Journal, Encoding.UTF8))
         {
@@ -329,6 +378,10 @@ internal static class CaesiumPortable
             else if (k == "HadRoamingParent") HadRoamingParent = bool.Parse(v);
             else if (k == "HadLocalParent") HadLocalParent = bool.Parse(v);
             else if (k == "HadRegistryParent") HadRegistryParent = bool.Parse(v);
+            else if (k == "QtManaged") QtManaged = bool.Parse(v);
+            else if (k == "HadQtDialog") HadQtDialog = bool.Parse(v);
+            else if (k == "HadQtOrgParent") HadQtOrgParent = bool.Parse(v);
+            else if (k == "HadQtRootParent") HadQtRootParent = bool.Parse(v);
             else if (k == "RoamingBackup") RoamingBackup = Encoding.UTF8.GetString(Convert.FromBase64String(v));
             else if (k == "LocalBackup") LocalBackup = Encoding.UTF8.GetString(Convert.FromBase64String(v));
         }

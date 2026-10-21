@@ -109,6 +109,11 @@ New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $repoRoot 'diagnostics') -File | ForEach-Object {
   Copy-Item -LiteralPath $_.FullName -Destination $diagnostics
 }
+$maintenance=Join-Path $other 'Maintenance'
+New-Item -ItemType Directory -Force -Path $maintenance | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $repoRoot 'maintenance') -File | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination $maintenance
+}
 # Windows 10/11 includes .NET Framework 4.x runtime; compile a small launcher, NOT a setup installer.
 $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
 if (!(Test-Path $csc)) { throw 'Windows .NET Framework C# compiler is unavailable on this runner.' }

@@ -1,4 +1,4 @@
-# Caesium True Portable Builder v1.1
+# Caesium True Portable Builder v1.2
 
 An unofficial, manual GitHub Actions builder for the official Caesium Image
 Compressor Windows x64 portable release. **The builder ZIP contains scripts,
@@ -33,20 +33,27 @@ Even the official portable ZIP writes to three reported external locations:
 
 Reference: https://github.com/Lymphatus/caesium-image-compressor/issues/317
 
-**v1.1 improvement: empty parent cleanup.** The launcher now remembers
-whether each `SaeraSoft` parent container existed *before* the run. On exit,
-it removes only those parent containers that were absent initially, created
-during this run, and are still empty. It never recursively deletes a parent,
-or deletes a pre-existing parent, even when empty. The recovery journal carries
-this information across an interrupted launch. Existing v1.0 recovery journals
-are conservatively treated as having pre-existing parents.
+**v1.2 improvement: remaining empty parents and Qt file-dialog state.** After
+restoring host settings, the launcher now removes EMPTY `SaeraSoft` parent
+folders and registry keys even if older v1.0/v1.1 sessions left them behind.
+Cleanup is nonrecursive, refuses symlinks, and never removes a parent containing
+another file, subkey, or registry value.
 
-The uploaded audit from October 21, 2026 showed the same ten monitored entries
-before and after the v1.0 run. Therefore the lingering `SaeraSoft` parents and
-`QtProject\OrganizationDefaults\FileDialog` values **predated that test**.
-The audit cannot attribute their original creation. v1.1 intentionally does
-not clean previously existing parents or any `QtProject` registry key, which is
-a Qt-wide storage area shared across applications.
+Qt has another settings location, `HKCU\Software\QtProject\OrganizationDefaults\FileDialog`,
+which is **shared by multiple Qt applications**. The launcher now temporarily
+backs up only this `FileDialog` leaf, swaps in the portable copy saved in
+`Data/Settings/qtfiledialog.reg`, then restores the original host leaf after
+Caesium exits. Newly created empty Qt parents are pruned. Existing Qt
+preferences are deliberately preserved, so concurrent Qt applications must
+NOT be used while Caesium Portable is running. Crash recovery includes this
+state, including upgrade recovery from v1.1 journals.
+
+A previously existing `QtProject/FileDialog` key **will remain after v1.2**
+if it belonged to the Windows account before launch. This is intentional to
+avoid destroying other programs' preferences. A one-time optional cleanup tool
+in `Other/Maintenance/Review-Old-QtFileDialog.cmd` can back up and remove
+that specific old key with your typed approval. It refuses unexpected registry
+entries and never removes the whole QtProject tree.
 
 The launcher handles those **specific Caesium** locations. It backs up any
 pre-existing Caesium settings, places your portable state for the duration of
@@ -75,6 +82,7 @@ CaesiumPortable/
     Caesium/                         (replaceable official application)
   Data/
     Settings/registry.reg            (saved personal preferences)
+    Settings/qtfiledialog.reg        (portable Qt file-dialog state)
     Roaming/                         (portable roaming app files)
     Local/                           (portable local app files)
     Temp/                            (temporary files)
@@ -82,6 +90,7 @@ CaesiumPortable/
   Other/
     Launcher/target.txt
     Source/CaesiumPortable.cs
+    Maintenance/                    (OPTIONAL old Qt key review & cleanup)
     TESTING.md
 ```
 
@@ -100,21 +109,18 @@ same official version being packaged. This is an unofficial community builder.
 
 ## Limitations
 
-The launcher uses journaled temporary movement of only Caesium-specific host
-settings. The host settings must be restored after exit; an abrupt shutdown
-requires automatic recovery on next launch with the same Windows account.
-When moving between PCs, old absolute output directories from preferences
-might no longer exist. Do not run multiple Caesium copies simultaneously.
-This design cannot prevent Windows-managed traces or unanticipated writes from
-upstream components. It is not a guarantee of zero Windows traces. Windows
-Qt FileDialog keys under `HKCU\Software\QtProject` are never modified by the
-launcher because other Qt applications can use them. The previous read-only
-audit compared value names/types, not value contents, and so did not prove
-registry values were completely unchanged. Test using `docs/TESTING.md` before claiming zero remnants.
+The launcher temporarily swaps Caesium's two AppData folders, the SaeraSoft
+application registry key, and the Qt `FileDialog` registry leaf. It then saves
+the portable settings and restores the previous host state. An interrupted
+run uses the recovery journal; never delete an active journal or backup.
+Do not run concurrent Qt applications while Caesium Portable is open; changes
+from another Qt program to the shared file-dialog key could otherwise be lost.
+The launcher cannot prevent Windows-managed traces or unknown upstream writes;
+test on Windows before claiming complete isolation.
 
 Windows build and full GUI tests require your first GitHub Actions run.
 
-## Read-only verification (v1.1)
+## Read-only verification (v1.2)
 
 The portable ZIP includes `Other/Diagnostics/` with the optional v1.1 audit.
 To use it, COPY `Audit-CaesiumPortable.ps1` and `Run-Caesium-Trace-Audit.cmd`
@@ -124,3 +130,18 @@ It now compares **existing registry value contents** privately, using an
 in-memory keyed fingerprint, without exporting their values or digests.
 
 An unchanged baseline does not prove where an old trace came from.
+
+## Removing OLD Qt traces from earlier Caesium builds (OPTIONAL)
+
+You may see `HKCU\Software\QtProject\OrganizationDefaults\FileDialog`
+remaining from BEFORE you install v1.2. The launcher cannot safely assume
+ownership of that existing shared Qt data. To remove only that old leaf:
+
+1. Fully exit Caesium and other Qt-based programs.
+2. Run `Other/Maintenance/Review-Old-QtFileDialog.cmd` from the generated
+   portable folder (this helper is NOT inside the downloaded builder alone).
+3. Read the warning. Only type the exact confirmation if you accept resetting
+   other Qt programs' file-picker history. A backup is saved in `Data/LegacyHostBackups`.
+4. Rerun the included trace audit, import images and compress them.
+
+Do NOT remove all of `QtProject`, and never delete nonempty `SaeraSoft` parents.
