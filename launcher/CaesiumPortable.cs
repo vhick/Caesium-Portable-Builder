@@ -14,11 +14,14 @@ using Microsoft.Win32;
 internal static class CaesiumPortable
 {
     const string RegSubkey = @"Software\SaeraSoft\Caesium Image Compressor";
+    const string RegParent = @"Software\SaeraSoft";
     const string AppSubpath = @"SaeraSoft\Caesium Image Compressor";
     const string Marker = ".caesium-portable-owned";
     static string Root, Data, Recovery, Target, RoamingHost, LocalHost;
     static string RoamingBackup, LocalBackup, OriginalReg, Journal;
     static bool HadRoaming, HadLocal, HadRegistry;
+    // Only remove empty containers newly created by THIS launch.
+    static bool HadRoamingParent, HadLocalParent, HadRegistryParent;
     static string MachineIdentity;
 
     [STAThread]
@@ -127,6 +130,9 @@ internal static class CaesiumPortable
         HadRoaming = Directory.Exists(RoamingHost);
         HadLocal = Directory.Exists(LocalHost);
         HadRegistry = HasKey();
+        HadRoamingParent = Directory.Exists(Path.GetDirectoryName(RoamingHost));
+        HadLocalParent = Directory.Exists(Path.GetDirectoryName(LocalHost));
+        HadRegistryParent = HasParentKey();
         WriteJournal(); // save recovery info BEFORE touching Windows
 
         PrepareFolder(RoamingHost, RoamingBackup, Path.Combine(Data, "Roaming"), HadRoaming);
@@ -169,6 +175,11 @@ internal static class CaesiumPortable
         if (HadRegistry && File.Exists(OriginalReg)) ImportReg(OriginalReg);
         RecoverFolder(RoamingHost, RoamingBackup, Path.Combine(Data, "Roaming"), HadRoaming);
         RecoverFolder(LocalHost, LocalBackup, Path.Combine(Data, "Local"), HadLocal);
+        // Do not remove parents that existed BEFORE this launch, even if empty.
+        // Never delete non-empty parents: other SaeraSoft tools may share them.
+        if (!HadRoamingParent) RemoveNewEmptyFolderParent(Path.GetDirectoryName(RoamingHost));
+        if (!HadLocalParent) RemoveNewEmptyFolderParent(Path.GetDirectoryName(LocalHost));
+        if (!HadRegistryParent) RemoveNewEmptyRegistryParent();
         if (File.Exists(OriginalReg)) File.Delete(OriginalReg);
         File.Delete(Journal);
         // Recovery directory is left empty for easy inspection.
@@ -215,6 +226,44 @@ internal static class CaesiumPortable
             CopyDirectory(directory, Path.Combine(dst, Path.GetFileName(directory)), includeMarker);
     }
 
+    static void RemoveNewEmptyFolderParent(string parent)
+    {
+        try
+        {
+            if (!Directory.Exists(parent)) return;
+            DirectoryInfo info = new DirectoryInfo(parent);
+            // Refuse symlinks and reparse points, regardless of directory emptiness.
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0) return;
+            if (Directory.GetFileSystemEntries(parent).Length == 0)
+                Directory.Delete(parent, false); // never recursive
+        }
+        catch (IOException) { /* Keep parent if it is in use or changed. */ }
+        catch (UnauthorizedAccessException) { /* Never elevate for cleanup. */ }
+        catch (System.Security.SecurityException) { }
+    }
+
+    static bool HasParentKey()
+    {
+        using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegParent)) return k != null;
+    }
+
+    static void RemoveNewEmptyRegistryParent()
+    {
+        try
+        {
+            using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegParent, false))
+            {
+                if (k == null || k.SubKeyCount != 0 || k.ValueCount != 0) return;
+            }
+            // DeleteSubKey refuses non-empty subkey trees (unlike DeleteSubKeyTree).
+            Registry.CurrentUser.DeleteSubKey(RegParent, false);
+        }
+        catch (IOException) { /* Keep existing or concurrently created contents. */ }
+        catch (UnauthorizedAccessException) { }
+        catch (System.Security.SecurityException) { }
+        catch (ArgumentException) { }
+    }
+
     static bool HasKey()
     {
         using (RegistryKey k = Registry.CurrentUser.OpenSubKey(RegSubkey)) return k != null;
@@ -244,6 +293,9 @@ internal static class CaesiumPortable
             "HadRoaming=" + HadRoaming,
             "HadLocal=" + HadLocal,
             "HadRegistry=" + HadRegistry,
+            "HadRoamingParent=" + HadRoamingParent,
+            "HadLocalParent=" + HadLocalParent,
+            "HadRegistryParent=" + HadRegistryParent,
             "RoamingBackup=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(RoamingBackup)),
             "LocalBackup=" + Convert.ToBase64String(Encoding.UTF8.GetBytes(LocalBackup))
         };
@@ -260,6 +312,11 @@ internal static class CaesiumPortable
     }
     static void LoadJournal()
     {
+        // v1.0 recovery journals have no parent flags. Assume those parents
+        // existed so upgrading during an interrupted session cannot delete them.
+        HadRoamingParent = true;
+        HadLocalParent = true;
+        HadRegistryParent = true;
         string owner = null;
         foreach (string line in File.ReadAllLines(Journal, Encoding.UTF8))
         {
@@ -269,6 +326,9 @@ internal static class CaesiumPortable
             else if (k == "HadRoaming") HadRoaming = bool.Parse(v);
             else if (k == "HadLocal") HadLocal = bool.Parse(v);
             else if (k == "HadRegistry") HadRegistry = bool.Parse(v);
+            else if (k == "HadRoamingParent") HadRoamingParent = bool.Parse(v);
+            else if (k == "HadLocalParent") HadLocalParent = bool.Parse(v);
+            else if (k == "HadRegistryParent") HadRegistryParent = bool.Parse(v);
             else if (k == "RoamingBackup") RoamingBackup = Encoding.UTF8.GetString(Convert.FromBase64String(v));
             else if (k == "LocalBackup") LocalBackup = Encoding.UTF8.GetString(Convert.FromBase64String(v));
         }

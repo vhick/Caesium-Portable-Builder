@@ -1,4 +1,4 @@
-# Windows portability test (Caesium v1.0 builder)
+# Windows portability test (Caesium v1.1 builder)
 
 1. Extract the final inner ZIP directly into your `PortableApps` folder. It must
    create **one** `CaesiumPortable` directory containing `CaesiumPortable.exe`.
@@ -39,3 +39,20 @@ outside the application launcher. The custom launcher does not erase them.
 Qt or codecs might use other paths in future upstream releases; use ProcMon
 as a secondary verification step and report any remaining application-owned
 paths. This builder has not been run by the author on Windows.
+
+## v1.1 specific check - newly created parent containers
+
+1. On a Windows test account **without** any `SaeraSoft` paths, take a
+   before snapshot of `%APPDATA%\SaeraSoft`, `%LOCALAPPDATA%\SaeraSoft`,
+   and `HKCU\Software\SaeraSoft`. Do not delete existing paths to create
+   an artificial clean account.
+2. Launch the v1.1 root launcher, compress a test image, exit normally.
+3. Check the three parent containers. They should be absent if they were
+   absent before the run and remained empty after settings restoration.
+4. If any parent existed before launch, it must be preserved, even if empty.
+5. Check an installed Caesium copy or unrelated SaeraSoft application, if
+   present, still has its original settings.
+6. Do not delete `HKCU\Software\QtProject`; this is shared Qt storage.
+
+The previously provided trace audit found 10 entries before and after the
+run. It does not prove no existing registry **value data** was modified.

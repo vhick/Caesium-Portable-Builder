@@ -103,6 +103,12 @@ Set-Content -LiteralPath (Join-Path $appinfo 'appinfo.ini') -Value $ini -Encodin
 Copy-Item -LiteralPath (Join-Path $repoRoot 'launcher/CaesiumPortable.cs') -Destination (Join-Path $other 'Source/CaesiumPortable.cs')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE-LAUNCHER.txt') -Destination (Join-Path $other 'Source/LICENSE-LAUNCHER.txt')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/TESTING.md') -Destination (Join-Path $other 'TESTING.md')
+# Read-only diagnostic, manually invoked when needed; never auto-runs.
+$diagnostics=Join-Path $other 'Diagnostics'
+New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $repoRoot 'diagnostics') -File | ForEach-Object {
+  Copy-Item -LiteralPath $_.FullName -Destination $diagnostics
+}
 # Windows 10/11 includes .NET Framework 4.x runtime; compile a small launcher, NOT a setup installer.
 $csc=Join-Path $env:WINDIR 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
 if (!(Test-Path $csc)) { throw 'Windows .NET Framework C# compiler is unavailable on this runner.' }

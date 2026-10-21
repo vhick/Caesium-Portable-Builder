@@ -43,6 +43,39 @@ class CheckBuilder(unittest.TestCase):
         s=(ROOT/'README.md').read_text(encoding='utf8')
         self.assertIn('Preserve your existing `Data/`',s)
         self.assertIn('Do not delete those backups',s)
+    def test_new_empty_parent_cleanup_only(self):
+        s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
+        for part in ('HadRoamingParent','HadLocalParent','HadRegistryParent',
+                     'RemoveNewEmptyFolderParent','RemoveNewEmptyRegistryParent',
+                     'Directory.GetFileSystemEntries(parent).Length == 0',
+                     'info.Attributes & FileAttributes.ReparsePoint',
+                     'k.SubKeyCount != 0 || k.ValueCount != 0',
+                     'DeleteSubKey(RegParent, false)'):
+            self.assertIn(part,s)
+        self.assertNotIn('DeleteSubKeyTree(RegParent',s)
+        self.assertNotIn('DeleteSubKeyTree(@"Software\\QtProject',s)
+    def test_preexisting_parents_never_removed(self):
+        s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
+        for part in ('if (!HadRoamingParent) RemoveNewEmptyFolderParent',
+                     'if (!HadLocalParent) RemoveNewEmptyFolderParent',
+                     'if (!HadRegistryParent) RemoveNewEmptyRegistryParent'):
+            self.assertIn(part,s)
+    def test_v10_journal_compatibility(self):
+        s=(ROOT/'launcher/CaesiumPortable.cs').read_text(encoding='utf8')
+        self.assertIn('HadRoamingParent = true;',s)
+        self.assertIn('HadLocalParent = true;',s)
+        self.assertIn('HadRegistryParent = true;',s)
+        self.assertIn('"HadRoamingParent=" + HadRoamingParent',s)
+    def test_readonly_audit_compares_value_contents_without_reporting_hashes(self):
+        a=(ROOT/'diagnostics/Audit-CaesiumPortable.ps1').read_text(encoding='utf8')
+        self.assertIn('Get-RegistryValueFingerprint',a)
+        self.assertIn('DoNotExpandEnvironmentNames',a)
+        self.assertIn('privateDigestKey',a)
+        self.assertIn('Get-RegistryValueFingerprint $reg $valueName',a)
+        self.assertIn('Compress-Archive -LiteralPath $report',a)
+        self.assertNotIn('Remove-Item ',a)
+        s=(ROOT/'scripts/build.ps1').read_text(encoding='utf8')
+        self.assertIn("Join-Path $repoRoot 'diagnostics'",s)
     def test_no_upstream_binaries_in_builder(self):
         self.assertFalse(list(ROOT.rglob('*.exe')))
         self.assertFalse(list(ROOT.rglob('*.dll')))

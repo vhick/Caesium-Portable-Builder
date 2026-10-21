@@ -1,4 +1,4 @@
-# Caesium True Portable Builder v1.0
+# Caesium True Portable Builder v1.1
 
 An unofficial, manual GitHub Actions builder for the official Caesium Image
 Compressor Windows x64 portable release. **The builder ZIP contains scripts,
@@ -32,6 +32,21 @@ Even the official portable ZIP writes to three reported external locations:
 - `HKCU\Software\SaeraSoft\Caesium Image Compressor`
 
 Reference: https://github.com/Lymphatus/caesium-image-compressor/issues/317
+
+**v1.1 improvement: empty parent cleanup.** The launcher now remembers
+whether each `SaeraSoft` parent container existed *before* the run. On exit,
+it removes only those parent containers that were absent initially, created
+during this run, and are still empty. It never recursively deletes a parent,
+or deletes a pre-existing parent, even when empty. The recovery journal carries
+this information across an interrupted launch. Existing v1.0 recovery journals
+are conservatively treated as having pre-existing parents.
+
+The uploaded audit from October 21, 2026 showed the same ten monitored entries
+before and after the v1.0 run. Therefore the lingering `SaeraSoft` parents and
+`QtProject\OrganizationDefaults\FileDialog` values **predated that test**.
+The audit cannot attribute their original creation. v1.1 intentionally does
+not clean previously existing parents or any `QtProject` registry key, which is
+a Qt-wide storage area shared across applications.
 
 The launcher handles those **specific Caesium** locations. It backs up any
 pre-existing Caesium settings, places your portable state for the duration of
@@ -91,6 +106,21 @@ requires automatic recovery on next launch with the same Windows account.
 When moving between PCs, old absolute output directories from preferences
 might no longer exist. Do not run multiple Caesium copies simultaneously.
 This design cannot prevent Windows-managed traces or unanticipated writes from
-upstream components. Test using `docs/TESTING.md` before claiming zero remnants.
+upstream components. It is not a guarantee of zero Windows traces. Windows
+Qt FileDialog keys under `HKCU\Software\QtProject` are never modified by the
+launcher because other Qt applications can use them. The previous read-only
+audit compared value names/types, not value contents, and so did not prove
+registry values were completely unchanged. Test using `docs/TESTING.md` before claiming zero remnants.
 
 Windows build and full GUI tests require your first GitHub Actions run.
+
+## Read-only verification (v1.1)
+
+The portable ZIP includes `Other/Diagnostics/` with the optional v1.1 audit.
+To use it, COPY `Audit-CaesiumPortable.ps1` and `Run-Caesium-Trace-Audit.cmd`
+from that directory next to the root `CaesiumPortable.exe`, then run the CMD.
+The report is created inside `Data/Diagnostics` and never cleans Windows.
+It now compares **existing registry value contents** privately, using an
+in-memory keyed fingerprint, without exporting their values or digests.
+
+An unchanged baseline does not prove where an old trace came from.
