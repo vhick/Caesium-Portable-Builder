@@ -1,0 +1,39 @@
+name: Build Caesium True Portable (Manual)
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Stable release: latest or v2.8.5'
+        type: string
+        default: latest
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout builder
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate builder package
+        run: python -m unittest discover -s tests -v
+      - name: Download and package upstream portable release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/build.ps1 -ReleaseTag $env:RELEASE_TAG
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CaesiumPortable-Windows-x64
+          path: dist/CaesiumPortable-*.zip
+          if-no-files-found: error
+          retention-days: 1
